@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/jeremyproffitt/go-mcp-pagerduty/internal/auth"
 )
 
 const (
@@ -102,8 +105,23 @@ func (c *Client) buildURLWithArrayParams(path string, params map[string][]string
 	return u
 }
 
+// getAPIKey returns the API key to use, checking context for override
+func (c *Client) getAPIKey(ctx context.Context) string {
+	if ctx != nil {
+		if token, ok := auth.GetPagerDutyToken(ctx); ok && token != "" {
+			return token
+		}
+	}
+	return c.apiKey
+}
+
 // doRequest performs an HTTP request with proper headers
 func (c *Client) doRequest(method, url string, body interface{}) ([]byte, error) {
+	return c.doRequestWithContext(context.Background(), method, url, body)
+}
+
+// doRequestWithContext performs an HTTP request with proper headers and context support
+func (c *Client) doRequestWithContext(ctx context.Context, method, url string, body interface{}) ([]byte, error) {
 	var reqBody io.Reader
 
 	if body != nil {
@@ -114,12 +132,12 @@ func (c *Client) doRequest(method, url string, body interface{}) ([]byte, error)
 		reqBody = bytes.NewBuffer(jsonBody)
 	}
 
-	req, err := http.NewRequest(method, url, reqBody)
+	req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Token token="+c.apiKey)
+	req.Header.Set("Authorization", "Token token="+c.getAPIKey(ctx))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/vnd.pagerduty+json;version=2")
 	req.Header.Set("User-Agent", UserAgent)
@@ -213,6 +231,11 @@ type PaginatedResponse struct {
 
 // Paginate iterates through all pages of a paginated endpoint
 func (c *Client) Paginate(path string, params map[string]string, maxResults int, handler func([]byte) (int, error)) error {
+	return c.PaginateWithContext(context.Background(), path, params, maxResults, handler)
+}
+
+// PaginateWithContext iterates through all pages of a paginated endpoint with context support
+func (c *Client) PaginateWithContext(ctx context.Context, path string, params map[string]string, maxResults int, handler func([]byte) (int, error)) error {
 	offset := 0
 	limit := 100
 	totalFetched := 0
@@ -225,7 +248,7 @@ func (c *Client) Paginate(path string, params map[string]string, maxResults int,
 		params["offset"] = fmt.Sprintf("%d", offset)
 		params["limit"] = fmt.Sprintf("%d", limit)
 
-		data, err := c.Get(path, params)
+		data, err := c.GetWithContext(ctx, path, params)
 		if err != nil {
 			return err
 		}
@@ -255,4 +278,61 @@ func (c *Client) Paginate(path string, params map[string]string, maxResults int,
 	}
 
 	return nil
+}
+
+// GetWithContext performs a GET request with context support
+func (c *Client) GetWithContext(ctx context.Context, path string, params map[string]string) ([]byte, error) {
+	url := c.buildURL(path, params)
+	return c.doRequestWithContext(ctx, http.MethodGet, url, nil)
+}
+
+// GetWithArrayParamsContext performs a GET request with array parameters and context support
+func (c *Client) GetWithArrayParamsContext(ctx context.Context, path string, params map[string][]string) ([]byte, error) {
+	url := c.buildURLWithArrayParams(path, params)
+	return c.doRequestWithContext(ctx, http.MethodGet, url, nil)
+}
+
+// PostWithContext performs a POST request with context support
+func (c *Client) PostWithContext(ctx context.Context, path string, body interface{}) ([]byte, error) {
+	url := c.buildURL(path, nil)
+	return c.doRequestWithContext(ctx, http.MethodPost, url, body)
+}
+
+// PutWithContext performs a PUT request with context support
+func (c *Client) PutWithContext(ctx context.Context, path string, body interface{}) ([]byte, error) {
+	url := c.buildURL(path, nil)
+	return c.doRequestWithContext(ctx, http.MethodPut, url, body)
+}
+
+// DeleteWithContext performs a DELETE request with context support
+func (c *Client) DeleteWithContext(ctx context.Context, path string) ([]byte, error) {
+	url := c.buildURL(path, nil)
+	return c.doRequestWithContext(ctx, http.MethodDelete, url, nil)
+}
+
+// GetJSONWithContext performs a GET request and unmarshals the response with context support
+func (c *Client) GetJSONWithContext(ctx context.Context, path string, params map[string]string, v interface{}) error {
+	data, err := c.GetWithContext(ctx, path, params)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
+// PostJSONWithContext performs a POST request and unmarshals the response with context support
+func (c *Client) PostJSONWithContext(ctx context.Context, path string, body interface{}, v interface{}) error {
+	data, err := c.PostWithContext(ctx, path, body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
+// PutJSONWithContext performs a PUT request and unmarshals the response with context support
+func (c *Client) PutJSONWithContext(ctx context.Context, path string, body interface{}, v interface{}) error {
+	data, err := c.PutWithContext(ctx, path, body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
 }

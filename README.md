@@ -68,6 +68,37 @@ PAGERDUTY_API_HOST=https://api.pagerduty.com
 ./pagerduty-mcp --enable-write-tools
 ```
 
+### HTTP Mode (For Containers/Lambda)
+
+```bash
+./pagerduty-mcp --http --host 0.0.0.0 --port 3000
+```
+
+### Command Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--http` | Run in HTTP mode | `false` |
+| `--host` | HTTP server host | `127.0.0.1` |
+| `--port` | HTTP server port | `3000` |
+| `--enable-write-tools` | Enable write operations | `false` |
+
+### HTTP Mode Details
+
+When running in HTTP mode, the server exposes:
+- `POST /` - MCP JSON-RPC endpoint
+- `GET /health` - Health check endpoint (returns `{"status":"ok","version":"X.X.X"}`)
+
+**Authentication**: HTTP mode requires an `Authorization` header on all requests (except `/health`). The authorization layer is pluggable; by default it accepts any token.
+
+**Per-Request Credentials**: In HTTP mode, PagerDuty tokens can be passed via headers instead of environment variables, enabling multi-user scenarios:
+
+| Header | Description |
+|--------|-------------|
+| `X-PagerDuty-Token` | PagerDuty user API key (overrides `PAGERDUTY_USER_API_KEY`) |
+
+This header overrides the corresponding environment variable when present.
+
 ## MCP Client Configuration
 
 ### Claude Desktop

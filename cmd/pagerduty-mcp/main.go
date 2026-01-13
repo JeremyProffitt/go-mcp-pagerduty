@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/jeremyproffitt/go-mcp-pagerduty/internal/auth"
 	"github.com/jeremyproffitt/go-mcp-pagerduty/internal/client"
 	"github.com/jeremyproffitt/go-mcp-pagerduty/internal/server"
 	"github.com/joho/godotenv"
@@ -15,6 +16,9 @@ import (
 func main() {
 	// Parse command line flags
 	enableWriteTools := flag.Bool("enable-write-tools", false, "Enable write operations (create, update, delete)")
+	httpMode := flag.Bool("http", false, "Run in HTTP mode instead of stdio")
+	host := flag.String("host", "127.0.0.1", "Host to listen on in HTTP mode")
+	port := flag.Int("port", 3000, "Port to listen on in HTTP mode")
 	flag.Parse()
 
 	// Load .env file if it exists
@@ -35,12 +39,25 @@ func main() {
 	}
 
 	// Create MCP server
-	mcpServer := server.New(server.Config{
+	mcpSrv := server.New(server.Config{
 		EnableWriteTools: *enableWriteTools,
 	}, pdClient)
 
-	// Run the server on stdio
-	if err := mcpserver.ServeStdio(mcpServer); err != nil {
-		log.Fatalf("Server error: %v", err)
+	if *httpMode {
+		// Run in HTTP mode
+		fmt.Fprintf(os.Stderr, "Running in HTTP mode on %s:%d\n", *host, *port)
+		httpServer := server.NewHTTPServer(mcpSrv, server.HTTPConfig{
+			Host:       *host,
+			Port:       *port,
+			Authorizer: &auth.MockAuthorizer{},
+		})
+		if err := httpServer.RunHTTP(); err != nil {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	} else {
+		// Run the server on stdio
+		if err := mcpserver.ServeStdio(mcpSrv); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
 	}
 }
